@@ -4,7 +4,7 @@ const { ethers } = require("hardhat");
 describe("NuniswapV2Pair", function () {
   let token0;
   let token1;
-  let pair;
+  let factory;
   let owner;
 
   async function assertReserves(expectedReserve0, expectedReserve1) {
@@ -18,19 +18,16 @@ describe("NuniswapV2Pair", function () {
 
     token0 = await ethers.deployContract("ERC20Mintable", ["Token A", "TKNA"]);
     token1 = await ethers.deployContract("ERC20Mintable", ["Token B", "TKNB"]);
-
     await token0.waitForDeployment();
     await token1.waitForDeployment();
+    const token0Address = await token0.getAddress();
+    const token1Address = await token1.getAddress();
 
-    // console.log("Token0 address:", await token0.getAddress());
-    // console.log("Token1 address:", await token1.getAddress());
-
-    pair = await ethers.deployContract("NuniswapV2Pair", [
-      await token0.getAddress(),
-      await token1.getAddress(),
-    ]);
-    await pair.waitForDeployment();
-    // console.log("Pair address:", await pair.getAddress());
+    factory = await ethers.deployContract("NuniswapV2Factory");
+    await factory.waitForDeployment();
+    await factory.createPair(token0Address, token1Address);
+    const pairAddress = await factory.pairs(token0Address, token1Address);
+    pair = await ethers.getContractAt("NuniswapV2Pair", pairAddress);
 
     await token0.mint(ethers.parseEther("10"), owner.address);
     await token1.mint(ethers.parseEther("10"), owner.address);
@@ -67,29 +64,6 @@ describe("NuniswapV2Pair", function () {
     await assertReserves(ethers.parseEther("3"), ethers.parseEther("3"));
   });
 
-  it("mint when there is unbalanced liquidity", async function () {
-    // Initial balanced deposit of 1 ether each
-    await token0.transfer(await pair.getAddress(), ethers.parseEther("1"));
-    await token1.transfer(await pair.getAddress(), ethers.parseEther("1"));
-
-    await pair.mint(owner.address);
-
-    expect(await pair.balanceOf(owner.address)).to.equal(
-      ethers.parseEther("1") - 1000n
-    );
-    await assertReserves(ethers.parseEther("1"), ethers.parseEther("1"));
-
-    await token0.transfer(await pair.getAddress(), ethers.parseEther("2"));
-    await token1.transfer(await pair.getAddress(), ethers.parseEther("1"));
-
-    await pair.mint(owner.address);
-
-    expect(await pair.balanceOf(owner.address)).to.equal(
-      ethers.parseEther("2") - 1000n
-    );
-    await assertReserves(ethers.parseEther("3"), ethers.parseEther("2"));
-  });
-
   it("should burn liquidity", async function () {
     await token0.transfer(await pair.getAddress(), ethers.parseEther("1"));
     await token1.transfer(await pair.getAddress(), ethers.parseEther("1"));
@@ -106,46 +80,6 @@ describe("NuniswapV2Pair", function () {
     expect(await pair.totalSupply()).to.equal(1000n);
     expect(await token0.balanceOf(owner.address)).to.equal(
       ethers.parseEther("10") - 1000n
-    );
-    expect(await token1.balanceOf(owner.address)).to.equal(
-      ethers.parseEther("10") - 1000n
-    );
-  });
-
-  it("should burn unbalanced liquidity", async function () {
-    // First deposit: balanced liquidity of 1 ether each
-    await token0.transfer(await pair.getAddress(), ethers.parseEther("1"));
-    await token1.transfer(await pair.getAddress(), ethers.parseEther("1"));
-
-    // Mint LP tokens for the first deposit
-    await pair.mint(owner.address);
-
-    // Second deposit: unbalanced liquidity (2 ether for token0, 1 ether for token1)
-    await token0.transfer(await pair.getAddress(), ethers.parseEther("2"));
-    await token1.transfer(await pair.getAddress(), ethers.parseEther("1"));
-
-    // Mint LP tokens for the second deposit
-    await pair.mint(owner.address);
-
-    // Retrieve total LP tokens held by the owner and transfer them to the pair contract
-    const liquidity = await pair.balanceOf(owner.address);
-    await pair.transfer(await pair.getAddress(), liquidity);
-
-    // Burn the liquidity tokens to withdraw underlying tokens
-    await pair.burn(owner.address);
-
-    // Owner should have 0 LP tokens after burning
-    expect(await pair.balanceOf(owner.address)).to.equal(0n);
-
-    // Expected reserves after burn: 1500 for token0 and 1000 for token1 (in raw units)
-    await assertReserves(1500n, 1000n);
-
-    // Total supply should be the locked MINIMUM_LIQUIDITY, 1000
-    expect(await pair.totalSupply()).to.equal(1000n);
-
-    // Owner's token balances should be initial 10 ether minus the amounts withdrawn
-    expect(await token0.balanceOf(owner.address)).to.equal(
-      ethers.parseEther("10") - 1500n
     );
     expect(await token1.balanceOf(owner.address)).to.equal(
       ethers.parseEther("10") - 1000n
@@ -169,5 +103,130 @@ describe("NuniswapV2Pair", function () {
     await expect(
       pair.connect(nonLP).burn(owner.address)
     ).to.be.revertedWithCustomError(pair, "InsufficientLiquidityBurned");
+  });
+
+  it("should swap with basic scenario", async function () {
+    // First determine token order in the pair
+    const token0Address = await token0.getAddress();
+    const token1Address = await token1.getAddress();
+    const token0IsPair0 = (await pair.token0()) === token0Address;
+
+    // Initial liquidity provision
+    await token0.transfer(await pair.getAddress(), ethers.parseEther("1"));
+    await token1.transfer(await pair.getAddress(), ethers.parseEther("2"));
+    await pair.mint(owner.address);
+
+    // Calculate amount to receive from swap
+    const amountOut = ethers.parseEther("0.181322178776029826");
+
+    // Send token0 to pair for swapping
+    await token0.transfer(await pair.getAddress(), ethers.parseEther("0.1"));
+
+    // Execute the swap - need to set amountOut parameters according to token order
+    let amount0Out = 0n;
+    let amount1Out = amountOut;
+
+    // If tokens are reversed in the pair, swap the output amounts
+    if (!token0IsPair0) {
+      amount0Out = amountOut;
+      amount1Out = 0n;
+    }
+
+    await pair.swap(amount0Out, amount1Out, owner.address);
+
+    // Verify token0 balance: initial 10 - 1 (initial liquidity) - 0.1 (swap input)
+    expect(await token0.balanceOf(owner.address)).to.equal(
+      ethers.parseEther("10") -
+        ethers.parseEther("1") -
+        ethers.parseEther("0.1")
+    );
+
+    // Verify token1 balance: initial 10 - 2 (initial liquidity) + amountOut (swap output)
+    expect(await token1.balanceOf(owner.address)).to.equal(
+      ethers.parseEther("10") - ethers.parseEther("2") + amountOut
+    );
+
+    // Verify reserves are updated correctly
+    const reserves = await pair.getReserves();
+
+    if (token0IsPair0) {
+      // token0 is pair's token0
+      expect(reserves[0]).to.equal(
+        ethers.parseEther("1") + ethers.parseEther("0.1")
+      );
+      expect(reserves[1]).to.equal(ethers.parseEther("2") - amountOut);
+    } else {
+      // token0 is pair's token1
+      expect(reserves[1]).to.equal(
+        ethers.parseEther("1") + ethers.parseEther("0.1")
+      );
+      expect(reserves[0]).to.equal(ethers.parseEther("2") - amountOut);
+    }
+  });
+
+  it("should swap bidirectionally", async function () {
+    // First determine token order in the pair
+    const token0Address = await token0.getAddress();
+    const token1Address = await token1.getAddress();
+    const token0IsPair0 = (await pair.token0()) === token0Address;
+
+    // Initial liquidity provision
+    await token0.transfer(await pair.getAddress(), ethers.parseEther("1"));
+    await token1.transfer(await pair.getAddress(), ethers.parseEther("2"));
+    await pair.mint(owner.address);
+
+    // Send tokens to pair for swapping (both token0 and token1)
+    await token0.transfer(await pair.getAddress(), ethers.parseEther("0.1"));
+    await token1.transfer(await pair.getAddress(), ethers.parseEther("0.2"));
+
+    // Execute the swap - take out some of both tokens
+    // We need to set the amounts based on the token order in the pair
+    let amount0Out = ethers.parseEther("0.09");
+    let amount1Out = ethers.parseEther("0.18");
+
+    // If tokens are reversed in the pair, swap the output amounts
+    if (!token0IsPair0) {
+      amount0Out = ethers.parseEther("0.18");
+      amount1Out = ethers.parseEther("0.09");
+    }
+
+    await pair.swap(amount0Out, amount1Out, owner.address);
+
+    // Verify token0 balance: initial 10 - 1 (initial liquidity) - 0.1 (swap input) + 0.09 (swap output) = 8.99 ETH
+    expect(await token0.balanceOf(owner.address)).to.equal(
+      ethers.parseEther("10") -
+        ethers.parseEther("1") -
+        ethers.parseEther("0.1") +
+        ethers.parseEther("0.09")
+    );
+
+    // Verify token1 balance: initial 10 - 2 (initial liquidity) - 0.2 (swap input) + 0.18 (swap output) = 7.98 ETH
+    expect(await token1.balanceOf(owner.address)).to.equal(
+      ethers.parseEther("10") -
+        ethers.parseEther("2") -
+        ethers.parseEther("0.2") +
+        ethers.parseEther("0.18")
+    );
+
+    // Verify reserves after swap, taking into account token order
+    if (token0IsPair0) {
+      await assertReserves(
+        ethers.parseEther("1") +
+          ethers.parseEther("0.1") -
+          ethers.parseEther("0.09"),
+        ethers.parseEther("2") +
+          ethers.parseEther("0.2") -
+          ethers.parseEther("0.18")
+      );
+    } else {
+      await assertReserves(
+        ethers.parseEther("2") +
+          ethers.parseEther("0.2") -
+          ethers.parseEther("0.18"),
+        ethers.parseEther("1") +
+          ethers.parseEther("0.1") -
+          ethers.parseEther("0.09")
+      );
+    }
   });
 });

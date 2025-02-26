@@ -17,6 +17,7 @@ error InsufficientLiquidity();
 error InsufficientInputAmount();
 error InsufficientOutputAmount();
 error InvalidK();
+error AlreadyInitialized();
 error BalanceOverflow();
 error TransferFailed();
 
@@ -55,10 +56,12 @@ contract NuniswapV2Pair is ERC20, Math {
         isEntered = false;
     }
 
-    constructor(
-        address token0_,
-        address token1_
-    ) ERC20("NuniswapV2 Pair", "NUNIV2", 18) {
+    constructor() ERC20("NuniswapV2 Pair", "NUNIV2", 18) {}
+
+    function initialize(address token0_, address token1_) public {
+        if (token0 != address(0) || token1 != address(0))
+            revert AlreadyInitialized();
+
         token0 = token0_;
         token1 = token1_;
     }
@@ -122,8 +125,7 @@ contract NuniswapV2Pair is ERC20, Math {
     function swap(
         uint256 amount0Out,
         uint256 amount1Out,
-        address to,
-        bytes calldata data
+        address to
     ) public nonReentrant {
         if (amount0Out == 0 && amount1Out == 0)
             revert InsufficientOutputAmount();
@@ -135,13 +137,6 @@ contract NuniswapV2Pair is ERC20, Math {
 
         if (amount0Out > 0) _safeTransfer(token0, to, amount0Out);
         if (amount1Out > 0) _safeTransfer(token1, to, amount1Out);
-        if (data.length > 0)
-            IZuniswapV2Callee(to).zuniswapV2Call(
-                msg.sender,
-                amount0Out,
-                amount1Out,
-                data
-            );
 
         uint256 balance0 = IERC20(token0).balanceOf(address(this));
         uint256 balance1 = IERC20(token1).balanceOf(address(this));
