@@ -11,6 +11,8 @@
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",
-    "hardhat": "^2.22.19"
+    "@rari-capital/solmate": "^6.4.0",
+    "hardhat": "^2.22.19",
+    "solmate": "^6.8.0"
   }
 }
