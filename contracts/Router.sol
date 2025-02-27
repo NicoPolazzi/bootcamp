@@ -1,20 +1,20 @@
 // SPDX-License-Identifier: Unlicense
 pragma solidity ^0.8.10;
 
-import "./NuniswapV2Library.sol";
-import "./NuniswapV2Factory.sol";
-import "./NuniswapV2Pair.sol";
+import "./Library.sol";
+import "./Factory.sol";
+import "./Pair.sol";
 
-contract NuniswapV2Router {
+contract Router {
     error ExcessiveInputAmount();
     error InsufficientAAmount();
     error InsufficientBAmount();
     error SafeTransferFailed();
 
-    NuniswapV2Factory factory;
+    Factory factory;
 
     constructor(address factoryAddress) {
-        factory = NuniswapV2Factory(factoryAddress);
+        factory = Factory(factoryAddress);
     }
 
     function addLiquidity(
@@ -38,14 +38,10 @@ contract NuniswapV2Router {
             amountAMin,
             amountBMin
         );
-        address pairAddress = NuniswapV2Library.pairFor(
-            address(factory),
-            tokenA,
-            tokenB
-        );
+        address pairAddress = Library.pairFor(address(factory), tokenA, tokenB);
         _safeTransferFrom(tokenA, msg.sender, pairAddress, amountA);
         _safeTransferFrom(tokenB, msg.sender, pairAddress, amountB);
-        liquidity = NuniswapV2Pair(pairAddress).mint(to);
+        liquidity = Pair(pairAddress).mint(to);
     }
 
     function removeLiquidity(
@@ -56,13 +52,9 @@ contract NuniswapV2Router {
         uint256 amountBMin,
         address to
     ) public returns (uint256 amountA, uint256 amountB) {
-        address pair = NuniswapV2Library.pairFor(
-            address(factory),
-            tokenA,
-            tokenB
-        );
-        NuniswapV2Pair(pair).transferFrom(msg.sender, pair, liquidity);
-        (amountA, amountB) = NuniswapV2Pair(pair).burn(to);
+        address pair = Library.pairFor(address(factory), tokenA, tokenB);
+        Pair(pair).transferFrom(msg.sender, pair, liquidity);
+        (amountA, amountB) = Pair(pair).burn(to);
         if (amountA < amountAMin) revert InsufficientAAmount();
         if (amountA < amountBMin) revert InsufficientBAmount();
     }
@@ -73,17 +65,13 @@ contract NuniswapV2Router {
         address[] calldata path,
         address to
     ) public returns (uint256[] memory amounts) {
-        amounts = NuniswapV2Library.getAmountsOut(
-            address(factory),
-            amountIn,
-            path
-        );
+        amounts = Library.getAmountsOut(address(factory), amountIn, path);
         if (amounts[amounts.length - 1] < amountOutMin)
             revert InsufficientOutputAmount();
         _safeTransferFrom(
             path[0],
             msg.sender,
-            NuniswapV2Library.pairFor(address(factory), path[0], path[1]),
+            Library.pairFor(address(factory), path[0], path[1]),
             amounts[0]
         );
         _swap(amounts, path, to);
@@ -95,17 +83,13 @@ contract NuniswapV2Router {
         address[] calldata path,
         address to
     ) public returns (uint256[] memory amounts) {
-        amounts = NuniswapV2Library.getAmountsIn(
-            address(factory),
-            amountOut,
-            path
-        );
+        amounts = Library.getAmountsIn(address(factory), amountOut, path);
         if (amounts[amounts.length - 1] > amountInMax)
             revert ExcessiveInputAmount();
         _safeTransferFrom(
             path[0],
             msg.sender,
-            NuniswapV2Library.pairFor(address(factory), path[0], path[1]),
+            Library.pairFor(address(factory), path[0], path[1]),
             amounts[0]
         );
         _swap(amounts, path, to);
@@ -118,21 +102,19 @@ contract NuniswapV2Router {
     ) internal {
         for (uint256 i; i < path.length - 1; i++) {
             (address input, address output) = (path[i], path[i + 1]);
-            (address token0, ) = NuniswapV2Library.sortTokens(input, output);
+            (address token0, ) = Library.sortTokens(input, output);
             uint256 amountOut = amounts[i + 1];
             (uint256 amount0Out, uint256 amount1Out) = input == token0
                 ? (uint256(0), amountOut)
                 : (amountOut, uint256(0));
             address to = i < path.length - 2
-                ? NuniswapV2Library.pairFor(
-                    address(factory),
-                    output,
-                    path[i + 2]
-                )
+                ? Library.pairFor(address(factory), output, path[i + 2])
                 : to_;
-            NuniswapV2Pair(
-                NuniswapV2Library.pairFor(address(factory), input, output)
-            ).swap(amount0Out, amount1Out, to);
+            Pair(Library.pairFor(address(factory), input, output)).swap(
+                amount0Out,
+                amount1Out,
+                to
+            );
         }
     }
 
@@ -144,7 +126,7 @@ contract NuniswapV2Router {
         uint256 amountAMin,
         uint256 amountBMin
     ) internal view returns (uint256 amountA, uint256 amountB) {
-        (uint256 reserveA, uint256 reserveB) = NuniswapV2Library.getReserves(
+        (uint256 reserveA, uint256 reserveB) = Library.getReserves(
             address(factory),
             tokenA,
             tokenB
@@ -153,7 +135,7 @@ contract NuniswapV2Router {
         if (reserveA == 0 && reserveB == 0) {
             (amountA, amountB) = (amountADesired, amountBDesired);
         } else {
-            uint256 amountBOptimal = NuniswapV2Library.quote(
+            uint256 amountBOptimal = Library.quote(
                 amountADesired,
                 reserveA,
                 reserveB
@@ -162,7 +144,7 @@ contract NuniswapV2Router {
                 if (amountBOptimal <= amountBMin) revert InsufficientBAmount();
                 (amountA, amountB) = (amountADesired, amountBOptimal);
             } else {
-                uint256 amountAOptimal = NuniswapV2Library.quote(
+                uint256 amountAOptimal = Library.quote(
                     amountBDesired,
                     reserveB,
                     reserveA
@@ -180,7 +162,7 @@ contract NuniswapV2Router {
         address from,
         address to,
         uint256 value
-    ) private {
+    ) internal {
         (bool success, bytes memory data) = token.call(
             abi.encodeWithSignature(
                 "transferFrom(address,address,uint256)",

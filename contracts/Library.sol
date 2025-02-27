@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Unlicense
 pragma solidity ^0.8.10;
 
-import "./NuniswapV2Factory.sol";
-import "./NuniswapV2Pair.sol";
-import {NuniswapV2Pair} from "./NuniswapV2Pair.sol";
+import "./Factory.sol";
+import "./Pair.sol";
+import {Pair} from "./Pair.sol";
 
-library NuniswapV2Library {
+library Library {
     error InsufficientAmount();
     error InvalidPath();
 
@@ -15,7 +15,7 @@ library NuniswapV2Library {
         address tokenB
     ) public view returns (uint256 reserveA, uint256 reserveB) {
         (address token0, address token1) = sortTokens(tokenA, tokenB);
-        (uint256 reserve0, uint256 reserve1, ) = NuniswapV2Pair(
+        (uint256 reserve0, uint256 reserve1, ) = Pair(
             pairFor(factoryAddress, token0, token1)
         ).getReserves();
         (reserveA, reserveB) = tokenA == token0
@@ -55,7 +55,7 @@ library NuniswapV2Library {
                             hex"ff",
                             factoryAddress,
                             keccak256(abi.encodePacked(token0, token1)),
-                            keccak256(type(NuniswapV2Pair).creationCode)
+                            keccak256(type(Pair).creationCode)
                         )
                     )
                 )

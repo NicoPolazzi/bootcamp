@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Unlicense
 pragma solidity ^0.8.10;
 
-import "./NuniswapV2Pair.sol";
+import "./Pair.sol";
 
-contract NuniswapV2Factory {
+contract Factory {
     error IdenticalAddresses();
     error PairExists();
     error ZeroAddress();
@@ -32,13 +32,13 @@ contract NuniswapV2Factory {
 
         if (pairs[token0][token1] != address(0)) revert PairExists();
 
-        bytes memory bytecode = type(NuniswapV2Pair).creationCode;
+        bytes memory bytecode = type(Pair).creationCode;
         bytes32 salt = keccak256(abi.encodePacked(token0, token1));
         assembly {
             pair := create2(0, add(bytecode, 32), mload(bytecode), salt)
         }
 
-        NuniswapV2Pair(pair).initialize(token0, token1);
+        Pair(pair).initialize(token0, token1);
 
         pairs[token0][token1] = pair;
         pairs[token1][token0] = pair;

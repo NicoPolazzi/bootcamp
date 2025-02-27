@@ -21,7 +21,7 @@ error AlreadyInitialized();
 error BalanceOverflow();
 error TransferFailed();
 
-contract NuniswapV2Pair is ERC20, Math {
+contract Pair is ERC20, Math {
     using UQ112x112 for uint224;
 
     uint256 constant MINIMUM_LIQUIDITY = 1000;
@@ -56,7 +56,7 @@ contract NuniswapV2Pair is ERC20, Math {
         isEntered = false;
     }
 
-    constructor() ERC20("NuniswapV2 Pair", "NUNIV2", 18) {}
+    constructor() ERC20("Pair", "UNIV2", 18) {}
 
     function initialize(address token0_, address token1_) public {
         if (token0 != address(0) || token1 != address(0))
